@@ -1,0 +1,6 @@
+{
+    "name": "redbox/gulp",
+    "description": "No-nonsense, compatible gulp pipelines for Magento 2",
+    "license": "MIT",
+    "require": {}
+}
