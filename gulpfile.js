@@ -23,6 +23,9 @@ const _ = require('lodash');
  */
 const less = require('gulp-less');
 
+const postcss = require('gulp-postcss');
+const rtlcss = require('rtlcss');
+
 /**
  * Command line flag parsing.
  */
@@ -52,6 +55,7 @@ const config = {
   themeCache: 'var/redbox/flat/static',
   locale: argv.locale,
   theme: argv.theme,
+  rtl: argv.locale.indexOf('ar') === 0,
 };
 
 /**
@@ -175,12 +179,25 @@ gulp.task('less', function () {
     'css'
   );
 
+  const postcssPlugins = [
+    ...getRtlCss()
+  ];
+
   gulp.src(
     ['css/*.less', '!css/_*.less'],
     { cwd: flatDir }
   )
     .pipe(magentoImporter(path.join(flatDir, 'css')))
     .pipe(less())
+    .pipe(postcss(postcssPlugins))
     .pipe(gulp.dest(dest));
+
+  function getRtlCss() {
+    if (config.rtl) {
+      return [ rtlcss() ];
+    }
+
+    return [];
+  }
 });
 
