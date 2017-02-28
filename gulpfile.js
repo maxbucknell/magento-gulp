@@ -201,3 +201,20 @@ gulp.task('less', function () {
   }
 });
 
+/**
+ * Watching.
+ *
+ * Conditionally rebuild files as quickly as possible when they change.
+ */
+gulp.task('watch', ['flatten', 'deploy'], function () {
+  gulp.watch(
+    path.join(
+      flatDir,
+      '**/*'
+    ),
+    function (e) {
+      console.log(`Change of type "${e.type}" for file "${e.path}"`);
+    }
+  );
+});
+
