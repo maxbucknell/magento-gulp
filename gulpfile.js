@@ -19,6 +19,11 @@ const rimraf = require('rimraf');
 const _ = require('lodash');
 
 /**
+ * Source maps
+ */
+const sourcemaps = require('gulp-sourcemaps');
+
+/**
  * Stylesheets
  */
 const less = require('gulp-less');
@@ -32,13 +37,22 @@ const rtlcss = require('rtlcss');
 const minimist = require('minimist');
 
 const options = {
-  string: ['locale', 'theme'],
+  string: ['locale', 'theme', 'area'],
+  boolean: ['help'],
   default: {
-    locale: 'en_US'
+    locale: 'en_US',
+    theme: 'Magento/luma',
+    area: 'frontend',
   },
 };
 
 const argv = minimist(process.argv.slice(1), options);
+
+/**
+ * Configuration helpers.
+ */
+const getBaseDir = require('./lib/js/get-base-dir');
+const isRtl = require('./lib/js/is-rtl');
 
 /**
  * Gulp configuration.
@@ -47,37 +61,77 @@ const argv = minimist(process.argv.slice(1), options);
  * including:
  *
  *  - The Magento 2 root directory.
- *  - The chosen cache directory for intermediate assets.
- *  - The theme and locale compilation targets.
+ *  - The location of intermediate build artefacts.
+ *  - The locale, theme, and area currently under compilation.
+ *  - Whether or not we should render right to left styles.
  */
 const config = {
-  baseDir: path.dirname(__dirname),
-  themeCache: 'var/redbox/flat/static',
+  baseDir: getBaseDir(__dirname),
+  buildDir: 'var/redbox/flat',
   locale: argv.locale,
   theme: argv.theme,
-  rtl: argv.locale.indexOf('ar') === 0,
+  area: argv.area,
+  rtl: isRtl(argv.locale),
 };
 
 /**
- * Flattened directory.
+ * Flattened static directory.
  *
  * This is stored in the cache directory, but indexed by theme and
  * locale, similar to pub/static.
  *
  * This is where we store the symlinked flattened theme hierarchy.
  */
-const flatDir = path.join(
+const staticDir = path.join(
   config.baseDir,
-  config.themeCache,
+  config.buildDir,
+  'static',
+  config.area,
   config.theme,
   config.locale
 );
 
 /**
- * Resolve the theme hierarchy into one source directory.
+ * Flattened templates directory.
+ *
+ * This is stored in the cache directory, and contains all templates
+ * that can be rendered by the selected theme.
+ *
+ * This is similar to the templates in `var/view_preprocessed`.
  */
-const flatten = require('./lib/js/flatten');
-gulp.task('flatten', ['clean'], flatten.bind(null, config));
+const templateDir = path.join(
+  config.baseDir,
+  config.buildDir,
+  'templates',
+  config.area,
+  config.theme,
+  config.locale
+);
+
+const findStaticDirectories = require('./lib/js/find-static-directories');
+const findFiles = require('./lib/js/find-files');
+const generateSymlinks = require('./lib/js/generate-symlinks');
+
+/**
+ * Resolve the static asset theme hierarchy.
+ *
+ * This will give a flat directory of symlinks to source files representing
+ * the "source" of the `pub/static` directory.
+ *
+ * It does this by collecting an ordered stream of directories reperesenting
+ * the source directories in reverse order of prominence (that is to say, the
+ * opposite of the order Magento will look in, so child theme at the end, and
+ * `lib/web` at the beginning.
+ *
+ * These are globbed and symlinks are created. Identical files from later
+ * directories will overwrite the previous file.
+ */
+gulp.task('flatten:static', function () {
+  return gulp.src(config.baseDir)
+    .pipe(findStaticDirectories(`${config.area}/${config.theme}`, config.locale))
+    .pipe(findFiles())
+    .pipe(generateSymlinks(staticDir));
+});
 
 /**
  * Clean theme cache.
@@ -86,7 +140,7 @@ gulp.task('flatten', ['clean'], flatten.bind(null, config));
  * start again.
  */
 gulp.task('clean', function () {
-  rimraf.sync(path.join(config.baseDir, config.themeCache));
+  rimraf.sync(path.join(config.baseDir, config.buildDir));
 });
 
 /**
@@ -94,10 +148,8 @@ gulp.task('clean', function () {
  *
  * Copy all source files (most assets can be treated as-is, and then
  * compile stylesheets.
- *
- * @todo JS processing
  */
-gulp.task('deploy', ['copy', 'less']);
+gulp.task('deploy', ['copy', 'less', 'translations']);
 
 /**
  * Copy all source files.
@@ -128,6 +180,7 @@ gulp.task('copy', function () {
     'map',
     'md',
     'png',
+    'sass',
     'scss',
     'svg',
     'swf',
@@ -144,13 +197,14 @@ gulp.task('copy', function () {
   const dest = path.join(
     config.baseDir,
     'pub/static',
+    config.area,
     config.theme,
     config.locale
   );
 
-  gulp.src(
+  return gulp.src(
     src,
-    { cwd: flatDir }
+    { cwd: staticDir }
   )
     .pipe(gulp.dest(dest));
 });
@@ -174,22 +228,27 @@ gulp.task('less', function () {
   const dest = path.join(
     config.baseDir,
     'pub/static',
+    config.area,
     config.theme,
     config.locale,
     'css'
   );
 
+  const maps = path.join(dest, 'maps');
+
   const postcssPlugins = [
     ...getRtlCss()
   ];
 
-  gulp.src(
+  return gulp.src(
     ['css/*.less', '!css/_*.less'],
-    { cwd: flatDir }
+    { cwd: staticDir }
   )
-    .pipe(magentoImporter(path.join(flatDir, 'css')))
+    .pipe(magentoImporter(path.join(staticDir, 'css')))
+    .pipe(sourcemaps.init())
     .pipe(less())
     .pipe(postcss(postcssPlugins))
+    .pipe(sourcemaps.write('../maps/css'))
     .pipe(gulp.dest(dest));
 
   function getRtlCss() {
@@ -202,6 +261,41 @@ gulp.task('less', function () {
 });
 
 /**
+ * Find phrases in source files.
+ */
+const findPhrases = require('./lib/js/find-phrases');
+
+/**
+ * Translate a list of phrases.
+ */
+const buildTranslations = require('./lib/js/build-translations');
+
+/**
+ * Translations
+ *
+ * The Magento 2 front end has a system wherein phrases are pulled out of
+ * static view files by regular expressions. These phrases are then translated
+ * and poured into a JSON file.
+ *
+ * This is in contrast to Magento 1, where translatable phrases on the front
+ * end had to be separately maintained inside an XML file.
+ */
+gulp.task('translations', function () {
+  const dest = path.join(
+    config.baseDir,
+    'pub/static',
+    config.area,
+    config.theme,
+    config.locale
+  );
+
+  return gulp.src(['**/*.js', '**/*.html'], { cwd: staticDir })
+    .pipe(findPhrases())
+    .pipe(buildTranslations(config))
+    .pipe(gulp.dest(dest));
+});
+
+/**
  * Watching.
  *
  * Conditionally rebuild files as quickly as possible when they change.
@@ -209,7 +303,7 @@ gulp.task('less', function () {
 gulp.task('watch', ['flatten', 'deploy'], function () {
   gulp.watch(
     path.join(
-      flatDir,
+      config.baseDir,
       '**/*'
     ),
     function (e) {
@@ -217,4 +311,3 @@ gulp.task('watch', ['flatten', 'deploy'], function () {
     }
   );
 });
-
