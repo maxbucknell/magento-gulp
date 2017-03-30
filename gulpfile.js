@@ -149,7 +149,7 @@ gulp.task('clean', function () {
  * Copy all source files (most assets can be treated as-is, and then
  * compile stylesheets.
  */
-gulp.task('deploy', ['copy', 'less', 'translations']);
+gulp.task('deploy', ['copy', 'less', 'translations', 'requirejs-config']);
 
 /**
  * Copy all source files.
@@ -294,6 +294,33 @@ gulp.task('translations', function () {
     .pipe(buildTranslations(config))
     .pipe(gulp.dest(dest));
 });
+
+const findRequireJsConfigFiles = require('./lib/js/find-require-js-config-files');
+const wrapRequireJsConfig = require('./lib/js/wrap-require-js-config');
+const concat = require('gulp-concat');
+
+/**
+ * requirejs configuration.
+ *
+ * magento modules and themes allow configuration of amd modules inside files
+ * named `requirejs-config.js`. these are collected, and merged, and stored in
+ * a single file.
+ */
+gulp.task('requirejs-config', function () {
+  const dest = path.join(
+    config.baseDir,
+    'pub/static/_requirejs',
+    config.area,
+    config.theme,
+    config.locale
+  );
+
+  return gulp.src(config.baseDir)
+    .pipe(findRequireJsConfigFiles(`${config.area}/${config.theme}`))
+    .pipe(wrapRequireJsConfig())
+    .pipe(concat('requirejs-config.js'))
+    .pipe(gulp.dest(dest));
+})
 
 /**
  * Watching.
