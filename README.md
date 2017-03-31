@@ -36,15 +36,20 @@ cd vendor/redbox/gulp
 npm install
 ```
 
-That's all the set up you'll need to do. To try it out, the best command to run
-is the `watch` command. It compiles everything, and then waits for changes.
-Remaining inside the `vendor/redbox/gulp` directory, run:
+That's all the set up you'll need to do. The next thing to do is build the
+flattened theme hierarchy, which is then used as the source location for the 
+other gulp tasks.
 
-```
+```bash
 # Feel free to change the theme name!
-./node_modules/.bin/gulp watch \
-  --theme="frontend/Magento/luma" \
-  --locale="en_US"
+./node_modules/.bin/gulp --theme="Magento/luma" flatten:static
+```
+
+Once that is done, you can run the `watch:static` command, which runs all tasks
+needed for static asset compilation whenever things change:
+
+```bash
+./node_modules/.bin/gulp --theme="Magento/luma" watch:static \
 ```
 
 >	For extra credit, install gulp as a global command to not have to write
@@ -59,12 +64,13 @@ invalidated assets for you automatically.
 
 All tasks have two required arguments:
 
-| Flag       | Description |
-| :--------- | :---------- |
-| `--theme`  | The theme to compile. |
-| `--locale` | The locale to compile |
+| Flag       | Default        | Description
+| :--------- | :--------------| :----------
+| `--theme`  | `Magento/luma` | The theme to compile.
+| `--locale` | `en_US`        | The locale to compile 
+| `--area`   | `frontend`     | The area to compile
 
-### `gulp flatten`
+### `gulp flatten:static`
 
 Resolve the theme hierarchy into a flat directory of unprocessed files.
 
@@ -90,23 +96,32 @@ through LESS, and spit out stylesheets.
 All `.less` files in the `web/css` directory are treated as compilation targets,
 and will get CSS files dumped in `pub/static`.
 
+### `gulp translations`
+
+Parse all static files for translatable phrases, and put the translations into
+`js-translation.js`. This pulls its data from the Magento translation
+dictionary, and strips out phrases that don't change. Essentially, it's
+identical to what Magento does.
+
+### `gulp requirejs-config`
+
+Collect all `requirejs-config.js` files, and put them into a compiled file in
+`pub/static/_requirejs`.
+
 ### `gulp deploy`
 
 #### Pre-Requisites
 
 *	`copy`
 *	`less`
+*   `translations`
+*   `requirejs-config`
 
 No-op.
 
-### `gulp watch`
+### `gulp watch:static`
 
-#### Pre-Requisites
-
-*	`flatten`
-*	`deploy`
-
-Compile all assets and wait for changes, then recompile invalid targets.
+Watch for changes in files, and run appropriate tasks.
 
 ## Technical Details
 
