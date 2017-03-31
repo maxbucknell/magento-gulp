@@ -151,18 +151,7 @@ gulp.task('clean', function () {
  */
 gulp.task('deploy', ['copy', 'less', 'translations', 'requirejs-config']);
 
-/**
- * Copy all source files.
- *
- * Most assets *can* be treated as they are, including JavaScript,
- * images, audio, and HTML partials.
- *
- * That's not to say they should, but it's not a hard dependency the
- * same way that stylesheets are. We will add appropriate processing for
- * all files.
- */
-gulp.task('copy', function () {
-  // Accepted static file types.
+function getCopyBlobs () {
   const fileTypes = [
     'css',
     'csv',
@@ -192,6 +181,24 @@ gulp.task('copy', function () {
 
   // All possible globs.
   const src = _.map(fileTypes, (ext) => `**/*.${ext}`);
+
+  return src;
+}
+
+/**
+ * Copy all source files.
+ *
+ * Most assets *can* be treated as they are, including JavaScript,
+ * images, audio, and HTML partials.
+ *
+ * That's not to say they should, but it's not a hard dependency the
+ * same way that stylesheets are. We will add appropriate processing for
+ * all files.
+ */
+gulp.task('copy', function () {
+  // Accepted static file types.
+
+  const src = getCopyBlobs();
 
   // Output directory.
   const dest = path.join(
@@ -327,14 +334,22 @@ gulp.task('requirejs-config', function () {
  *
  * Conditionally rebuild files as quickly as possible when they change.
  */
-gulp.task('watch', ['flatten', 'deploy'], function () {
+gulp.task('watch:static', function () {
   gulp.watch(
-    path.join(
-      config.baseDir,
-      '**/*'
-    ),
-    function (e) {
-      console.log(`Change of type "${e.type}" for file "${e.path}"`);
-    }
+    ['**/*.less'],
+    { cwd: staticDir },
+    ['less']
+  );
+
+  gulp.watch(
+    ['**/*.js', '**/*.html'],
+    { cwd: staticDir },
+    ['translations']
+  );
+
+  return gulp.watch(
+    getCopyBlobs(),
+    { cwd: staticDir },
+    ['copy']
   );
 });
